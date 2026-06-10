@@ -1,0 +1,255 @@
+import * as jutils from "./utils/utils.js";
+import { EventManager, KeyboardControls } from "./utils/keyboard.js";
+import * as jrng from "./utils/rng.js";
+
+function projectPoint(
+  position,
+  cameraPosition,
+  cameraDirection,
+  a = 1,
+  zfar = 10,
+  znear = 0.1,
+  fov = Math.PI / 2,
+) {
+  const up_ = [0, 1, 0];
+  const right = jutils.crossV(up_, cameraDirection);
+  const up = jutils.crossV(cameraDirection, right);
+  const diff = jutils.subV(position, cameraPosition);
+  const dx = jutils.dotV(diff, right);
+  const dy = jutils.dotV(diff, up);
+  const dz = jutils.dotV(diff, cameraDirection);
+
+  // a = w/h, F = 1/tan(fov/2), q = zf/(zf-zn)
+  //
+  // zf  fx
+  // -----------|       dx = z*fx/fz
+  // \ ___x__dx_| fy    px = x/(z*fx/fz) = F*x/z
+  //  \    \    |       py = y/(1/a*z*fx/fz) = a*F*y/z
+  //    \   \   | z     pz = (z-zn)*zf/(zf-zn) = z*q-zn*q
+  //   zn \-----|
+  //        \ \ |
+  //          \\|
+  const F = 1 / Math.tan(fov / 2);
+  const q = zfar / (zfar - znear);
+  const proj = [a * F * dx, F * dy, dz * q - znear * q];
+  return proj;
+}
+
+function toScreen(pos) {
+  return [pos[0] / pos[2] + 0.5, 1-(pos[1] / pos[2] + 0.5), 1];
+}
+
+function getCssStyles(proj, force=false) {
+  if (proj[2] < 1e-3 && !force) {
+    return { scale: "0", left: 0, top: 0, };
+  }
+  const leftTop = toScreen(proj);
+  const scale_ = 1 / proj[2];
+  const [left, top] = leftTop.map((v) => Math.floor(v * 100) + "%");
+  const scale = scale_;
+  return { left, top, scale };
+}
+
+class JSprite {
+  constructor(position, color) {
+    this.position = position;
+    this.color = color;
+  }
+}
+class JShape {
+  constructor(positions, color) {
+    this.positions = positions;
+    this.color = color;
+    this.el = null;
+  }
+}
+
+function main() {
+  const camera = {
+    pos: [0, 0, 0],
+    dir: [0, 0, 1],
+    pitch: 0,
+    yaw: Math.PI,
+  };
+  const colors = ["red", "green", "blue", "orange"];
+  const count = 20;
+  const dist = 10;
+  const rng = new jrng.JRngMulberry32(42);
+  // const sprites = [];
+  // for (let i = 0; i < count; i++) {
+  //   const pos = [
+  //     jrng.randFloat(-dist * 0.5, dist * 0.5, rng),
+  //     jrng.randFloat(-dist * 0.5, dist * 0.5, rng),
+  //     jrng.randFloat(-dist * 0.5, dist * 0.5, rng),
+  //   ];
+  //   const color = colors[jrng.randInt(0, colors.length, rng)];
+  //   const sprite = { pos, scale: [1, 1], el: null, color };
+  //   sprites.push(sprite);
+  // }
+  const sprites = [
+    new JSprite([2, 0, 2], "red"),
+    new JSprite([-2, 0, 2], "green"),
+    new JSprite([2, 0, -2], "blue"),
+    new JSprite([-2, 0, -2], "orange"),
+  ];
+  const shapes = [
+    new JShape(
+      [
+        [-1, 1, 1],
+        [1, 1, 1],
+        [1, -1, 1],
+        [-1, -1, 1],
+      ],
+      "cyan",
+    ),
+    new JShape(
+      [
+        [-1, 1, 2],
+        [1, 1, 2],
+        [1, -1, 2],
+        [-1, -1, 2],
+      ],
+      "lime",
+    ),
+  ];
+  const screenEl = document.querySelector(".screen");
+  sprites.forEach((sprite) => {
+    const el = document.createElement("div");
+    el.classList.add("sprite");
+    // el.style.backgroundColor = sprite.color;
+    el.style.setProperty("--color", sprite.color);
+    screenEl.append(el);
+    sprite.el = el;
+  });
+  shapes.forEach((shape) => {
+    const el = document.createElement('div');
+    el.classList.add("shape");
+    el.style.setProperty("--color", shape.color);
+    screenEl.append(el);
+    shape.el = el;
+  });
+
+  const keyboard = new KeyboardControls(new EventManager());
+  keyboard.activate();
+
+  let prevT = -1;
+  function animate(t) {
+    if (prevT < 0) {
+      prevT = t;
+    }
+    const dt = (t - prevT) / 1000;
+    prevT = t;
+    requestAnimationFrame(animate);
+    updateControls(dt);
+    updateCamera();
+    updateSprites();
+  }
+  requestAnimationFrame(animate);
+
+  function updateControls(dt) {
+    const controlMap = {
+      w: "forward",
+      s: "backward",
+      d: "right",
+      a: "left",
+      q: "up",
+      e: "down",
+      arrowup: "lookup",
+      arrowdown: "lookdown",
+      arrowleft: "lookleft",
+      arrowright: "lookright",
+      shift: "shift",
+    };
+    const controls = {};
+    Object.keys(controlMap).forEach((key) => {
+      if (keyboard.keyStates[key]) {
+        controls[controlMap[key]] = true;
+      }
+    });
+    applyControls(dt, controls);
+  }
+  function applyControls(dt, controls) {
+    const up = [0, 1, 0];
+    const right = jutils.crossV(up, camera.dir);
+    let offset = [0, 0, 0];
+    if (controls["forward"]) {
+      offset = jutils.addV(offset, camera.dir);
+    }
+    if (controls["backward"]) {
+      offset = jutils.subV(offset, camera.dir);
+    }
+    if (controls["right"]) {
+      offset = jutils.addV(offset, right);
+    }
+    if (controls["left"]) {
+      offset = jutils.subV(offset, right);
+    }
+    if (controls["up"]) {
+      offset = jutils.addV(offset, up);
+    }
+    if (controls["down"]) {
+      offset = jutils.subV(offset, up);
+    }
+    const speed = controls["shift"] ? 4 : 2;
+    camera.pos = jutils.addV(camera.pos, jutils.mulS(offset, speed * dt));
+
+    if (controls["lookup"]) {
+      camera.pitch = camera.pitch + dt; // Math.min(camera.pitch + dt, Math.PI / 2 - 0.01);
+    }
+    if (controls["lookdown"]) {
+      camera.pitch = camera.pitch - dt; // Math.max(camera.pitch - dt, -Math.PI / 2 + 0.01);
+    }
+    camera.pitch = Math.min(
+      Math.PI / 2 - 0.01,
+      Math.max(-Math.PI / 2 + 0.01, camera.pitch),
+    );
+    if (controls["lookleft"]) {
+      camera.yaw += dt;
+    }
+    if (controls["lookright"]) {
+      camera.yaw -= dt;
+    }
+  }
+  function updateCamera() {
+    camera.dir[0] = Math.cos(camera.yaw) * Math.cos(camera.pitch);
+    camera.dir[1] = Math.sin(camera.pitch);
+    camera.dir[2] = Math.sin(camera.yaw) * Math.cos(camera.pitch);
+  }
+  function updateSprites() {
+    const spriteWithProj = sprites.map((sprite) => [
+      projectPoint(sprite.position, camera.pos, camera.dir),
+      sprite,
+    ]);
+    spriteWithProj.sort((lhs, rhs) => {
+      const lpos = lhs[0];
+      const rpos = rhs[0];
+      return -(lpos[2] - rpos[2]);
+    });
+    spriteWithProj.forEach(([proj, sprite], i) => {
+      const styles = getCssStyles(proj);
+      styles.zIndex = i;
+      sprite.el.style.left = styles.left;
+      sprite.el.style.top = styles.top;
+      sprite.el.style.scale = styles.scale;
+      sprite.el.style.zIndex = styles.zIndex;
+    });
+
+    const projShapes = shapes.map((shape) => [
+      shape.positions.map((pos) => projectPoint(pos, camera.pos, camera.dir)),
+      shape,
+    ]);
+    projShapes.sort((lhs, rhs) => {
+      const lpos = Math.min(...lhs[0].map((p) => p[2]));
+      const rpos = Math.min(...rhs[0].map((p) => p[2]));
+      return -(lpos - rpos);
+    });
+    projShapes.forEach(([projs, shape], i) => {
+      const styles = projs.map(proj => getCssStyles(proj, true));
+      const points = styles.map((s) => `${s.left} ${s.top}`).join(',');
+      shape.el.style.clipPath = `polygon(${points})`;
+      shape.el.style.zIndex = i;
+    });
+  }
+}
+
+main();

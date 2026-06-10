@@ -1,0 +1,70 @@
+button, a, .clickable-element {
+    touch-action: manipulation;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.screen {
+  position: relative;
+  width: 400px;
+  /* height: 400px; */
+  background-color: hsl(0, 0%, 0%);
+  overflow: hidden;
+  max-width: 100%;
+  aspect-ratio: 1/1;
+}
+
+.sprite {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  transform: translate(-50%, -50%);
+  background-size: cover;
+  background-position: center;
+}
+.shape {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--color);
+}
+
+@keyframes glow {
+  from {
+    box-shadow: 0 0 10px -10px var(--color);
+  }
+  to {
+    box-shadow: 0 0 10px 10px var(--color);
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.controls {
+  gap: 4rem;
+}
+.controls button {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+}
+
+.controls.row {
+  justify-content: space-between;
+}
